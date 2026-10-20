@@ -1,0 +1,29 @@
+{
+  "name": "testrunner",
+  "displayName": "TestRunner",
+  "description": "Проверка консольных программ C++ на сохранённых тестах.",
+  "version": "0.1.0",
+  "publisher": "definitis",
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["Testing"],
+  "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false, "description": "TestRunner запускает компилятор и пользовательские программы." },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      { "command": "testrunner.runAllTests", "title": "TestRunner: Run All Tests" }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.95.0",
+    "typescript": "~5.7.3"
+  }
+}
