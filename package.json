@@ -13,6 +13,8 @@
   },
   "contributes": {
     "commands": [
+      { "command": "testrunner.addTest", "title": "TestRunner: Add Test" },
+      { "command": "testrunner.openTests", "title": "TestRunner: Open Tests" },
       { "command": "testrunner.runAllTests", "title": "TestRunner: Run All Tests" }
     ]
   },
