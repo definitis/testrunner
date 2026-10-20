@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { TestCase } from './tests';
 
 interface ProcessResult {
     stdout: string;
@@ -20,10 +21,11 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-function runProcess(command: string, args: string[], cwd: string, timeout: number): Promise<ProcessResult> {
+function runProcess(command: string, args: string[], cwd: string, timeout: number,
+    input = ''): Promise<ProcessResult> {
     return new Promise(resolve => {
         const child = spawn(command, args, {
-            cwd, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
+            cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe']
         });
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
@@ -54,11 +56,19 @@ function runProcess(command: string, args: string[], cwd: string, timeout: numbe
                 ? 'Компилятор g++ не найден. Установите его и добавьте в PATH.'
                 : errorMessage(error);
         });
+        // Программа вправе завершиться, не прочитав весь вход.
+        child.stdin.on('error', (error: NodeJS.ErrnoException) => {
+            if (error.code !== 'EPIPE' && error.code !== 'ECONNRESET' && error.code !== 'EOF') {
+                problem = errorMessage(error);
+                child.kill('SIGKILL');
+            }
+        });
         child.on('close', code => {
             clearTimeout(timer);
             resolve({ stdout: Buffer.concat(stdout).toString('utf8'),
                 stderr: Buffer.concat(stderr).toString('utf8'), code, timedOut, problem });
         });
+        child.stdin.end(input);
     });
 }
 
@@ -88,4 +98,46 @@ export async function compile(source: string): Promise<CompiledProgram> {
 
 export async function cleanup(program: CompiledProgram): Promise<void> {
     await rm(program.directory, { recursive: true, force: true });
+}
+
+export function normalizeOutput(output: string): string {
+    return output.replace(/\r\n/g, '\n').trimEnd();
+}
+
+export interface TestResult {
+    name: string;
+    status: 'PASS' | 'FAIL' | 'ERROR' | 'TIMEOUT';
+    expected: string;
+    actual: string;
+    details?: string;
+}
+
+export async function runTest(executable: string, test: TestCase, cwd: string): Promise<TestResult> {
+    const result: TestResult = { name: test.name, status: 'ERROR', expected: '', actual: '' };
+    try {
+        const input = await readFile(test.inputPath, 'utf8');
+        try {
+            result.expected = await readFile(test.expectedPath, 'utf8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                throw new Error(`Отсутствует ${path.basename(test.expectedPath)}.`);
+            }
+            throw error;
+        }
+        const processResult = await runProcess(executable, [], cwd, 3000, input);
+        result.actual = processResult.stdout;
+        if (processResult.timedOut) {
+            result.status = 'TIMEOUT';
+            result.details = 'Превышен лимит времени (3 секунды).';
+        } else if (processResult.problem || processResult.code !== 0) {
+            result.details = processResult.problem
+                ?? `Ошибка выполнения (код ${processResult.code}):\n${processResult.stderr}`;
+        } else {
+            result.status = normalizeOutput(result.actual) === normalizeOutput(result.expected)
+                ? 'PASS' : 'FAIL';
+        }
+    } catch (error) {
+        result.details = errorMessage(error);
+    }
+    return result;
 }
